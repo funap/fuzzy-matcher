@@ -100,3 +100,53 @@ TEST_F(FuzzyMatcherTest, ConsecutiveMatches) {
     int scoreNonConsecutive = matcher.ScoreMatch(L"axbxc", &positions);
     EXPECT_GT(scoreConsecutive, scoreNonConsecutive);
 }
+
+TEST_F(FuzzyMatcherTest, UTF8BasicMatching) {
+    // UTF-8 constructor and UTF-8 ScoreMatch
+    FuzzyMatcher matcher("abc");
+    std::vector<size_t> positions;
+
+    // Exact match
+    EXPECT_GT(matcher.ScoreMatch("abc", &positions), 0);
+    EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
+
+    // Partial match
+    positions.clear();
+    EXPECT_GT(matcher.ScoreMatch("xaxbxc", &positions), 0);
+    EXPECT_EQ(positions, std::vector<size_t>({1, 3, 5}));
+
+    // Case insensitive UTF-8 match
+    positions.clear();
+    EXPECT_GT(matcher.ScoreMatch("ABC", &positions), 0);
+    EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
+}
+
+TEST_F(FuzzyMatcherTest, UTF8JapaneseMatching) {
+    // Matching Japanese characters
+    FuzzyMatcher matcher("てすと");
+    std::vector<size_t> positions;
+
+    // "てすと" is:
+    // て (3 bytes: 0xE3 0x81 0xA6)
+    // す (3 bytes: 0xE3 0x81 0x99)
+    // と (3 bytes: 0xE3 0x81 0xA8)
+    //
+    // Target: "あていすうと"
+    // あ (3 bytes: 0xE3 0x81 0x82) [0-2]
+    // て (3 bytes: 0xE3 0x81 0xA6) [3-5]
+    // い (3 bytes: 0xE3 0x81 0x84) [6-8]
+    // す (3 bytes: 0xE3 0x81 0x99) [9-11]
+    // う (3 bytes: 0xE3 0x81 0x86) [12-14]
+    // と (3 bytes: 0xE3 0x81 0xA8) [15-17]
+    EXPECT_GT(matcher.ScoreMatch("あていすうと", &positions), 0);
+    EXPECT_EQ(positions, std::vector<size_t>({3, 9, 15}));
+}
+
+TEST_F(FuzzyMatcherTest, UTF32BasicMatching) {
+    // Using char32_t / std::u32string_view
+    FuzzyMatcher matcher(U"abc");
+    std::vector<size_t> positions;
+
+    EXPECT_GT(matcher.ScoreMatch(U"xaxbxc", &positions), 0);
+    EXPECT_EQ(positions, std::vector<size_t>({1, 3, 5}));
+}

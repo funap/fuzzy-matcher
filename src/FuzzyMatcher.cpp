@@ -38,7 +38,132 @@ namespace {
         static constexpr int DIRECTORY_SEPARATOR_BONUS  = 5;
     };
 
-    bool ValidateInputs(const std::wstring_view& pattern, const std::wstring_view& target)
+    bool Utf8ToUtf32(std::string_view utf8, std::u32string& utf32, std::vector<size_t>& byteOffsets)
+    {
+        utf32.clear();
+        byteOffsets.clear();
+        utf32.reserve(utf8.size());
+        byteOffsets.reserve(utf8.size());
+
+        for (size_t i = 0; i < utf8.size(); ) {
+            unsigned char c = utf8[i];
+            size_t charStart = i;
+            char32_t codePoint = 0;
+            size_t extraBytes = 0;
+
+            if (c < 0x80) {
+                codePoint = c;
+                extraBytes = 0;
+            } else if ((c & 0xE0) == 0xC0) {
+                codePoint = c & 0x1F;
+                extraBytes = 1;
+            } else if ((c & 0xF0) == 0xE0) {
+                codePoint = c & 0x0F;
+                extraBytes = 2;
+            } else if ((c & 0xF8) == 0xF0) {
+                codePoint = c & 0x07;
+                extraBytes = 3;
+            } else {
+                return false;
+            }
+
+            if (i + extraBytes >= utf8.size()) {
+                return false;
+            }
+
+            for (size_t j = 0; j < extraBytes; ++j) {
+                unsigned char nextC = utf8[i + 1 + j];
+                if ((nextC & 0xC0) != 0x80) {
+                    return false;
+                }
+                codePoint = (codePoint << 6) | (nextC & 0x3F);
+            }
+
+            utf32.push_back(codePoint);
+            byteOffsets.push_back(charStart);
+            i += 1 + extraBytes;
+        }
+        return true;
+    }
+
+    bool WstringToUtf32(std::wstring_view wstr, std::u32string& utf32, std::vector<size_t>& wstrOffsets)
+    {
+        utf32.clear();
+        wstrOffsets.clear();
+        utf32.reserve(wstr.size());
+        wstrOffsets.reserve(wstr.size());
+
+        for (size_t i = 0; i < wstr.size(); ) {
+            wchar_t c = wstr[i];
+            size_t charStart = i;
+            char32_t codePoint = 0;
+
+            if constexpr (sizeof(wchar_t) == 4) {
+                codePoint = static_cast<char32_t>(c);
+                utf32.push_back(codePoint);
+                wstrOffsets.push_back(charStart);
+                i += 1;
+            } else {
+                uint16_t u = static_cast<uint16_t>(c);
+                if (u >= 0xD800 && u <= 0xDBFF) {
+                    if (i + 1 < wstr.size()) {
+                        uint16_t nextU = static_cast<uint16_t>(wstr[i + 1]);
+                        if (nextU >= 0xDC00 && nextU <= 0xDFFF) {
+                            codePoint = 0x10000 + ((u - 0xD800) << 10) + (nextU - 0xDC00);
+                            utf32.push_back(codePoint);
+                            wstrOffsets.push_back(charStart);
+                            i += 2;
+                            continue;
+                        }
+                    }
+                    return false;
+                } else if (u >= 0xDC00 && u <= 0xDFFF) {
+                    return false;
+                } else {
+                    codePoint = u;
+                    utf32.push_back(codePoint);
+                    wstrOffsets.push_back(charStart);
+                    i += 1;
+                }
+            }
+        }
+        return true;
+    }
+
+    inline char32_t ToLower(char32_t c) {
+        if constexpr (sizeof(wchar_t) == 4) {
+            return std::towlower(static_cast<wchar_t>(c));
+        } else {
+            if (c <= 0xFFFF) {
+                return std::towlower(static_cast<wchar_t>(c));
+            }
+            return c;
+        }
+    }
+
+    inline bool IsLower(char32_t c) {
+        if constexpr (sizeof(wchar_t) == 4) {
+            return std::iswlower(static_cast<wchar_t>(c)) != 0;
+        } else {
+            if (c <= 0xFFFF) {
+                return std::iswlower(static_cast<wchar_t>(c)) != 0;
+            }
+            return false;
+        }
+    }
+
+    inline bool IsUpper(char32_t c) {
+        if constexpr (sizeof(wchar_t) == 4) {
+            return std::iswupper(static_cast<wchar_t>(c)) != 0;
+        } else {
+            if (c <= 0xFFFF) {
+                return std::iswupper(static_cast<wchar_t>(c)) != 0;
+            }
+            return false;
+        }
+    }
+
+    bool ValidateInputs(const std::u32string_view& pattern, const std::u32string_view& target)
     {
         return !(pattern.empty() || target.empty() || pattern.length() > target.length());
     }
@@ -80,16 +205,79 @@ namespace {
     }
 } // namespace
 
-FuzzyMatcher::FuzzyMatcher(std::wstring_view pattern)
+FuzzyMatcher::FuzzyMatcher(std::u32string_view pattern)
     : pattern_(pattern)
     , scoreMatrix_()
     , matchMatrix_()
 {
 }
 
+FuzzyMatcher::FuzzyMatcher(std::string_view pattern)
+    : scoreMatrix_()
+    , matchMatrix_()
+{
+    std::vector<size_t> offsets;
+    Utf8ToUtf32(pattern, pattern_, offsets);
+}
+
+FuzzyMatcher::FuzzyMatcher(std::wstring_view pattern)
+    : scoreMatrix_()
+    , matchMatrix_()
+{
+    std::vector<size_t> offsets;
+    WstringToUtf32(pattern, pattern_, offsets);
+}
+
 FuzzyMatcher::~FuzzyMatcher() = default;
 
+int FuzzyMatcher::ScoreMatch(std::u32string_view target, std::vector<size_t>* positions)
+{
+    return ScoreMatchInternal(target, positions);
+}
+
+int FuzzyMatcher::ScoreMatch(std::string_view target, std::vector<size_t>* positions)
+{
+    std::u32string targetU32;
+    std::vector<size_t> byteOffsets;
+    if (!Utf8ToUtf32(target, targetU32, byteOffsets)) {
+        return 0;
+    }
+
+    std::vector<size_t> u32Positions;
+    int score = ScoreMatchInternal(targetU32, positions ? &u32Positions : nullptr);
+
+    if (positions && score > 0) {
+        positions->clear();
+        positions->reserve(u32Positions.size());
+        for (size_t pos : u32Positions) {
+            positions->push_back(byteOffsets[pos]);
+        }
+    }
+    return score;
+}
+
 int FuzzyMatcher::ScoreMatch(std::wstring_view target, std::vector<size_t>* positions)
+{
+    std::u32string targetU32;
+    std::vector<size_t> wstrOffsets;
+    if (!WstringToUtf32(target, targetU32, wstrOffsets)) {
+        return 0;
+    }
+
+    std::vector<size_t> u32Positions;
+    int score = ScoreMatchInternal(targetU32, positions ? &u32Positions : nullptr);
+
+    if (positions && score > 0) {
+        positions->clear();
+        positions->reserve(u32Positions.size());
+        for (size_t pos : u32Positions) {
+            positions->push_back(wstrOffsets[pos]);
+        }
+    }
+    return score;
+}
+
+int FuzzyMatcher::ScoreMatchInternal(std::u32string_view target, std::vector<size_t>* positions)
 {
     if (!ValidateInputs(pattern_, target)) {
         return 0;
@@ -132,12 +320,12 @@ int FuzzyMatcher::ScoreMatch(std::wstring_view target, std::vector<size_t>* posi
     return result;
 }
 
-int FuzzyMatcher::CalculateScore(wchar_t patternChar, const std::wstring_view& target, size_t targetIndex, int matchesSequenceLength)
+int FuzzyMatcher::CalculateScore(char32_t patternChar, const std::u32string_view& target, size_t targetIndex, int matchesSequenceLength)
 {
     int score = 0;
 
-    const wchar_t patternLowerChar = std::towlower(patternChar);
-    const wchar_t targetLowerChar = std::towlower(target[targetIndex]);
+    const char32_t patternLowerChar = ToLower(patternChar);
+    const char32_t targetLowerChar = ToLower(target[targetIndex]);
 
     if (patternLowerChar != targetLowerChar) {
         return score;
@@ -169,7 +357,7 @@ int FuzzyMatcher::CalculateScore(wchar_t patternChar, const std::wstring_view& t
             score += ScoringConstants::START_OF_EXTENSION_BONUS;
             break;
         default:
-            if (std::iswlower(target[targetIndex - 1]) && std::iswupper(target[targetIndex])) {
+            if (IsLower(target[targetIndex - 1]) && IsUpper(target[targetIndex])) {
                 score += ScoringConstants::CAMEL_CASE_BONUS;
             }
             break;
