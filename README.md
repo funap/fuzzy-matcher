@@ -13,8 +13,8 @@ A lightweight C++ fuzzy string matching library that provides fast and flexible 
   - Extension starts
   - Directory separators
   - Word separators (space, underscore)
-- Position tracking of matched characters
-- Unicode support through wide strings
+- Position tracking of matched characters (returns byte/character offsets depending on string type)
+- Full Unicode support (UTF-8, UTF-16/Wide, and UTF-32)
 
 ## Installation
 
@@ -24,16 +24,31 @@ Just include the FuzzyMatcher.h and FuzzyMatcher.cpp files in your project.
 
 ```cpp
 #include "FuzzyMatcher.h"
+#include <vector>
 
-// Create a matcher with a search pattern
-FuzzyMatcher matcher(L"ptr");
+// 1. UTF-8 matching (standard string/string_view)
+{
+    FuzzyMatcher matcher("てすと");
+    std::vector<size_t> positions;
+    int score = matcher.ScoreMatch("あていすうと", &positions);
+    // positions will contain the byte offsets of matched characters: {3, 9, 15}
+}
 
-// Score a target string
-std::vector<size_t> positions;
-int score = matcher.ScoreMatch(L"MyPointer", &positions);
+// 2. Wide/UTF-16 matching (wstring/wstring_view)
+{
+    FuzzyMatcher matcher(L"ptr");
+    std::vector<size_t> positions;
+    int score = matcher.ScoreMatch(L"MyPointer", &positions);
+    // positions will contain character offsets: {2, 5, 7}
+}
 
-// positions will contain the indices of matched characters
-// score will indicate how well the string matches the pattern
+// 3. UTF-32 matching (u32string/u32string_view)
+{
+    FuzzyMatcher matcher(U"abc");
+    std::vector<size_t> positions;
+    int score = matcher.ScoreMatch(U"xaxbxc", &positions);
+    // positions will contain character offsets: {1, 3, 5}
+}
 ```
 
 ## Scoring System
@@ -45,7 +60,7 @@ The matching algorithm takes into account the following matching patterns:
 - First letter matches
 - Consecutive character matches
 - File extension boundaries (after '.')
-- Directory separator matches (after '\')
+- Directory separator matches (after '\' or '/')
 - Word separator matches (after space or underscore)
 - Camel case word boundaries
 
@@ -54,7 +69,7 @@ A higher score indicates a better match quality.
 ## Requirements
 
 - C++17 or later
-- Compiler with wide string support
+- Compiler with C++17 filesystem/library support
 
 ## Test
 
@@ -69,12 +84,16 @@ cd build
 2. Run CMake to build the project:
 ```bash
 cmake ..
-cmake --build .
+cmake --build . --config Debug
 ```
 
 3. Run the tests:
 ```bash
+# For single-configuration generators (e.g. Makefiles on Linux)
 ctest
+
+# For multi-configuration generators (e.g. Visual Studio on Windows)
+ctest -C Debug
 ```
 
 ## License

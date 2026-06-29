@@ -16,7 +16,6 @@ TEST_F(FuzzyMatcherTest, BasicMatching) {
     EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
 
     // Partial match
-    positions.clear();
     EXPECT_GT(matcher.ScoreMatch(L"xaxbxc", &positions), 0);
     EXPECT_EQ(positions, std::vector<size_t>({1, 3, 5}));
 }
@@ -73,11 +72,20 @@ TEST_F(FuzzyMatcherTest, EdgeCases) {
 }
 
 TEST_F(FuzzyMatcherTest, SeparatorBonus) {
-    // Directory separator bonus
+    // Directory separator bonus (backslash)
     {
         FuzzyMatcher matcher(L"f");
         std::vector<size_t> positions;
         int scoreSep = matcher.ScoreMatch(L"test\\file", &positions);
+        int scoreNormal = matcher.ScoreMatch(L"testfile", &positions);
+        EXPECT_GT(scoreSep, scoreNormal);
+    }
+
+    // Directory separator bonus (slash)
+    {
+        FuzzyMatcher matcher(L"f");
+        std::vector<size_t> positions;
+        int scoreSep = matcher.ScoreMatch(L"test/file", &positions);
         int scoreNormal = matcher.ScoreMatch(L"testfile", &positions);
         EXPECT_GT(scoreSep, scoreNormal);
     }
@@ -91,6 +99,24 @@ TEST_F(FuzzyMatcherTest, SeparatorBonus) {
         EXPECT_GT(scoreSep, scoreNormal);
     }
 }
+
+TEST_F(FuzzyMatcherTest, NullPositionsSupport) {
+    FuzzyMatcher matcher("abc");
+    // Verifying it doesn't crash and returns the correct score
+    EXPECT_GT(matcher.ScoreMatch("abc", nullptr), 0);
+    EXPECT_EQ(matcher.ScoreMatch("xyz", nullptr), 0);
+}
+
+TEST_F(FuzzyMatcherTest, InvalidUtf8Handling) {
+    FuzzyMatcher matcher("abc");
+    std::vector<size_t> positions = {1, 2, 3};
+    
+    // Invalid UTF-8 sequence (0xFF is not a valid lead byte)
+    int score = matcher.ScoreMatch("\xFF\xFE\xFD", &positions);
+    EXPECT_EQ(score, 0);
+    EXPECT_TRUE(positions.empty());
+}
+
 
 TEST_F(FuzzyMatcherTest, ConsecutiveMatches) {
     FuzzyMatcher matcher(L"abc");
@@ -150,3 +176,51 @@ TEST_F(FuzzyMatcherTest, UTF32BasicMatching) {
     EXPECT_GT(matcher.ScoreMatch(U"xaxbxc", &positions), 0);
     EXPECT_EQ(positions, std::vector<size_t>({1, 3, 5}));
 }
+
+TEST_F(FuzzyMatcherTest, PositionsVectorHandling) {
+    // UTF-8
+    {
+        FuzzyMatcher matcher("abc");
+        std::vector<size_t> positions = {99, 100};
+        
+        // Should clear on failure
+        EXPECT_EQ(matcher.ScoreMatch("xyz", &positions), 0);
+        EXPECT_TRUE(positions.empty());
+
+        // Should clear on success (pre-existing elements removed)
+        positions = {99, 100};
+        EXPECT_GT(matcher.ScoreMatch("abc", &positions), 0);
+        EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
+    }
+
+    // UTF-16
+    {
+        FuzzyMatcher matcher(L"abc");
+        std::vector<size_t> positions = {99, 100};
+
+        // Should clear on failure
+        EXPECT_EQ(matcher.ScoreMatch(L"xyz", &positions), 0);
+        EXPECT_TRUE(positions.empty());
+
+        // Should clear on success
+        positions = {99, 100};
+        EXPECT_GT(matcher.ScoreMatch(L"abc", &positions), 0);
+        EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
+    }
+
+    // UTF-32
+    {
+        FuzzyMatcher matcher(U"abc");
+        std::vector<size_t> positions = {99, 100};
+
+        // Should clear on failure
+        EXPECT_EQ(matcher.ScoreMatch(U"xyz", &positions), 0);
+        EXPECT_TRUE(positions.empty());
+
+        // Should clear on success
+        positions = {99, 100};
+        EXPECT_GT(matcher.ScoreMatch(U"abc", &positions), 0);
+        EXPECT_EQ(positions, std::vector<size_t>({0, 1, 2}));
+    }
+}
+

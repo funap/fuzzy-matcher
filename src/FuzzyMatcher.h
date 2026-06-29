@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// Copyright (c) 2019-2024 funap
+// Copyright (c) 2019-2026 funap
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,6 @@
 #ifndef FUZZY_MATCHER_H_
 #define FUZZY_MATCHER_H_
 
-#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,6 +31,12 @@ class FuzzyMatcher
 {
 public:
     FuzzyMatcher() = delete;
+
+    // Rule of Five to clarify copy/move behavior
+    FuzzyMatcher(const FuzzyMatcher&) = delete;
+    FuzzyMatcher& operator=(const FuzzyMatcher&) = delete;
+    FuzzyMatcher(FuzzyMatcher&&) = default;
+    FuzzyMatcher& operator=(FuzzyMatcher&&) = default;
 
     // UTF-8 string interface
     FuzzyMatcher(std::string_view pattern);

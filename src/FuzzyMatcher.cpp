@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// Copyright (c) 2019-2024 funap
+// Copyright (c) 2019-2026 funap
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,6 @@
 #include "FuzzyMatcher.h"
 
 #include <cwctype>
-#include <memory>
 #include <algorithm>
 
 namespace {
@@ -173,12 +172,10 @@ namespace {
                              size_t patternLength,
                              size_t targetLength)
     {
-        if (!positions) return;
-
         size_t patternIndex = patternLength - 1;
         size_t targetIndex  = targetLength  - 1;
 
-        while ((0 <= patternIndex) && (0 <= targetIndex)) {
+        while (true) {
             const size_t currentIndex = patternIndex * targetLength + targetIndex;
             const int match = matchMatrix[currentIndex];
 
@@ -240,17 +237,22 @@ int FuzzyMatcher::ScoreMatch(std::string_view target, std::vector<size_t>* posit
     std::u32string targetU32;
     std::vector<size_t> byteOffsets;
     if (!Utf8ToUtf32(target, targetU32, byteOffsets)) {
+        if (positions) {
+            positions->clear();
+        }
         return 0;
     }
 
     std::vector<size_t> u32Positions;
     int score = ScoreMatchInternal(targetU32, positions ? &u32Positions : nullptr);
 
-    if (positions && score > 0) {
+    if (positions) {
         positions->clear();
-        positions->reserve(u32Positions.size());
-        for (size_t pos : u32Positions) {
-            positions->push_back(byteOffsets[pos]);
+        if (score > 0) {
+            positions->reserve(u32Positions.size());
+            for (size_t pos : u32Positions) {
+                positions->push_back(byteOffsets[pos]);
+            }
         }
     }
     return score;
@@ -261,17 +263,22 @@ int FuzzyMatcher::ScoreMatch(std::wstring_view target, std::vector<size_t>* posi
     std::u32string targetU32;
     std::vector<size_t> wstrOffsets;
     if (!WstringToUtf32(target, targetU32, wstrOffsets)) {
+        if (positions) {
+            positions->clear();
+        }
         return 0;
     }
 
     std::vector<size_t> u32Positions;
     int score = ScoreMatchInternal(targetU32, positions ? &u32Positions : nullptr);
 
-    if (positions && score > 0) {
+    if (positions) {
         positions->clear();
-        positions->reserve(u32Positions.size());
-        for (size_t pos : u32Positions) {
-            positions->push_back(wstrOffsets[pos]);
+        if (score > 0) {
+            positions->reserve(u32Positions.size());
+            for (size_t pos : u32Positions) {
+                positions->push_back(wstrOffsets[pos]);
+            }
         }
     }
     return score;
@@ -280,15 +287,19 @@ int FuzzyMatcher::ScoreMatch(std::wstring_view target, std::vector<size_t>* posi
 int FuzzyMatcher::ScoreMatchInternal(std::u32string_view target, std::vector<size_t>* positions)
 {
     if (!ValidateInputs(pattern_, target)) {
+        if (positions) {
+            positions->clear();
+        }
         return 0;
     }
 
-    scoreMatrix_.resize(pattern_.length() * target.length());
-    matchMatrix_.resize(pattern_.length() * target.length());
+    const size_t matrixSize = pattern_.length() * target.length();
+    scoreMatrix_.assign(matrixSize, 0);
+    matchMatrix_.assign(matrixSize, 0);
     for (size_t patternIndex = 0; patternIndex < pattern_.length(); ++patternIndex) {
         const bool patternIsFirstIndex          = (0 == patternIndex);
         const size_t patternIndexOffset         = patternIndex * target.length();
-        const size_t patternIndexPreviousOffset = patternIndexOffset - target.length();
+        const size_t patternIndexPreviousOffset = patternIsFirstIndex ? 0 : (patternIndexOffset - target.length());
 
         for (size_t targetIndex = 0; targetIndex < target.length(); ++targetIndex) {
             const bool targetIsFirstIndex   = (0 == targetIndex);
@@ -316,7 +327,12 @@ int FuzzyMatcher::ScoreMatchInternal(std::u32string_view target, std::vector<siz
     }
 
     const int result = scoreMatrix_[pattern_.length() * target.length() - 1];
-    RestoreMatchPositions(positions, matchMatrix_.data(), pattern_.length(), target.length());
+    if (positions) {
+        positions->clear();
+        if (result > 0) {
+            RestoreMatchPositions(positions, matchMatrix_.data(), pattern_.length(), target.length());
+        }
+    }
     return result;
 }
 
@@ -347,6 +363,7 @@ int FuzzyMatcher::CalculateScore(char32_t patternChar, const std::u32string_view
     else {
         switch (target[targetIndex - 1]) {
         case '\\':
+        case '/':
             score += ScoringConstants::DIRECTORY_SEPARATOR_BONUS;
             break;
         case ' ':
@@ -366,3 +383,4 @@ int FuzzyMatcher::CalculateScore(char32_t patternChar, const std::u32string_view
 
     return score;
 }
+

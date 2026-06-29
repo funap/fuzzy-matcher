@@ -4,11 +4,8 @@ project(FuzzyMatcher)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Visual Studio specific settings
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-    set(BUILD_SHARED_LIBS TRUE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /utf-8 /EHsc")
 endif()
 
 include(FetchContent)
@@ -39,12 +36,5 @@ target_link_libraries(${PROJECT_NAME}-test PRIVATE
     GTest::gtest_main
 )
 include(GoogleTest)
-gtest_discover_tests(${PROJECT_NAME}-test)
-if(MSVC)
-    add_custom_command(TARGET ${PROJECT_NAME}-test POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:gtest>
-            $<TARGET_FILE:gtest_main>
-            $<TARGET_FILE_DIR:${PROJECT_NAME}-test>
-    )
-endif()
+gtest_discover_tests(${PROJECT_NAME}-test DISCOVERY_MODE PRE_TEST)
+
